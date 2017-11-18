@@ -252,6 +252,19 @@ class Pointing:
             
         return [table_x, table_z] # returned points are in pixels
 
+    def normalize_point(self):    
+        if self.lpoint[0] < self.point_limit_center_x_l:
+            self.lpoint[0] = (self.lpoint[0] - self.point_limit_center_x_l)/(self.point_limit_center_x_l- self.point_limit_right_l)
+        else:
+            self.lpoint[0] = (self.lpoint[0] - self.point_limit_center_x_l)/(self.point_limit_left_l - self.point_limit_center_x_l)
+        self.lpoint[1] = (self.lpoint[1] - self.point_limit_top_l)/(self.point_limit_center_z_l - self.point_limit_top_l)
+        
+        if self.rpoint[0] < self.point_limit_center_x_r:
+            self.rpoint[0] = (self.rpoint[0] - self.point_limit_center_x_r )/(self.point_limit_center_x_r- self.point_limit_right_r)
+        else:
+            self.rpoint[0] = (self.rpoint[0] - self.point_limit_center_x_r)/(self.point_limit_left_r - self.point_limit_center_x_r)
+        self.rpoint[1] = (self.rpoint[1] - self.point_limit_top_r)/(self.point_limit_center_z_r - self.point_limit_top_r)
+
     def plot_all(self):
         #Plot where the pointing position is on the table
         #The table has a width of (-1,1) and depth of (0.0, 1.6)
@@ -269,20 +282,10 @@ class Pointing:
                 plt.gca().invert_yaxis()
                 plt.gca().invert_xaxis()
                 
-                ax.text(1, 1,"Left: %.1f %.1f\nRight: %.1f %.1f" %(self.lpoint[0], self.lpoint[1], self.rpoint[0], self.rpoint[1]), fontsize=15, horizontalalignment='right', verticalalignment='top')
+                ax.text(1, 1,"Left: %.1f %.1f\nRight: %.1f %.1f" %(self.lpoint[0], self.lpoint[1], self.rpoint[0], self.rpoint[1]), fontsize=15, horizontalalignment='right', verticalalignment='top')       
                 
-                #normalize                
-                if self.lpoint[0] < self.point_limit_center_x_l:
-                    self.lpoint[0] = (self.lpoint[0] - self.point_limit_center_x_l)/(self.point_limit_center_x_l- self.point_limit_right_l)
-                else:
-                    self.lpoint[0] = (self.lpoint[0] - self.point_limit_center_x_l)/(self.point_limit_left_l - self.point_limit_center_x_l)
-                self.lpoint[1] = (self.lpoint[1] - self.point_limit_top_l)/(self.point_limit_center_z_l - self.point_limit_top_l)
-                
-                if self.rpoint[0] < self.point_limit_center_x_r:
-                    self.rpoint[0] = (self.rpoint[0] - self.point_limit_center_x_r )/(self.point_limit_center_x_r- self.point_limit_right_r)
-                else:
-                    self.rpoint[0] = (self.rpoint[0] - self.point_limit_center_x_r)/(self.point_limit_left_r - self.point_limit_center_x_r)
-                self.rpoint[1] = (self.rpoint[1] - self.point_limit_top_r)/(self.point_limit_center_z_r - self.point_limit_top_r)
+                #normalize             
+                self.normalize_point()
                     
                 ax.plot(self.lpoint[0], self.lpoint[1], 'bo', label='left', markersize= 20)
                 ax.plot(self.rpoint[0], self.rpoint[1], 'ro', label='right', markersize= 20)

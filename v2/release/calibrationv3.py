@@ -28,6 +28,7 @@ class Calibration:
         if seq == 0:
             self.ew_length_arr_l.append(ew_length_changing_l)
             self.ew_length_arr_r.append(ew_length_changing_r)
+            
         elif seq == 1:
             self.dummy_tablex_center_arr_r.append(rpoint[0])
             self.dummy_tablez_center_arr_r.append(rpoint[1])
