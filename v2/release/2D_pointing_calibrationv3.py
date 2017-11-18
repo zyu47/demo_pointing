@@ -11,7 +11,7 @@ import sys
 
 
 class Pointing:
-    def __init__(self, table_length_actual = 1.6, table_width_actual = 1.6, table_height_actual = 0.7):    
+    def __init__(self, table_length_actual = 1.6, table_width_actual = 1.6, table_height_actual = 0.7, camera_angle = np.pi/6):    
         self.lpoint = (0,0)
         self.rpoint = (0,0)
         self.lcoord, self.rcoord = None, None
@@ -31,10 +31,11 @@ class Pointing:
         self.table_depth_m = table_width_actual # this is the actual width of the table (z in meters)
         self.table_width_m = table_length_actual # this is the actual length of the table (x in meters)
         self.table_height_m = table_height_actual # this is the actual height of the table to the camera (y in meters)
-
+        self.theta = camera_angle # the angle by how much the camera rotate around x axis, defualt is 30 degree or np.pi/6
+        
         #table_width_pixel = table_width / 0.295 * 735 * 0.655 /table_depth # table width in pixel, calibrated using our own camera
         #table_height_pixel = table_height / 0.295 * 735 * 0.655 /table_depth # table length in pixel, calibrated using our own camera
-        self.px_per_meter = 353/self.table_depth_m # pixels per meter at distance table_depth
+        self.px_per_meter = 353.0/self.table_depth_m # pixels per meter at distance table_depth
         #Transform meters into pixels
         self.table_depth = 353 #(in pixels)
         self.table_width = self.table_width_m * self.px_per_meter
@@ -75,7 +76,11 @@ class Pointing:
         if not self.cal.ew_calibrated and self.calInd == 1:
             self.cal.ew_calibrated = True
             self.ew_length_l = np.median(self.cal.ew_length_arr_l[int(len(self.cal.ew_length_arr_l)/2):int(len(self.cal.ew_length_arr_l)*4/5)])
+            self.ew_length_l /= 2 # halve due to ew_length_l is originally measured as distance from shoulder to wrist
+            self.ew_length_l /= np.cos(self.theta) # calibrate due to camera rotate around x axis
             self.ew_length_r = np.median(self.cal.ew_length_arr_r[int(len(self.cal.ew_length_arr_r)/2):int(len(self.cal.ew_length_arr_r)*4/5)])
+            self.ew_length_r /= 2 
+            self.ew_length_r /= np.cos(self.theta)
         self.cal.calibrate(self.calInd, self.ew_length_changing_l, self.ew_length_changing_r, self.lpoint, self.rpoint)
         print('calInd: ', self.calInd)
         print('lcoord: ', self.lcoord)
@@ -94,13 +99,13 @@ class Pointing:
                 #print(lcoord)
                 self.lpoint  = self.calcPointing(self.lcoord[0], self.lcoord[2], self.lcoord[1], 'l')
                 if not self.cal.calibrated:
-                    self.ew_length_changing_l = np.linalg.norm(np.array(self.lcoord[0])-np.array(self.lcoord[2]))/2 
+                    self.ew_length_changing_l = np.linalg.norm(np.array(self.lcoord[0])-np.array(self.lcoord[2])) 
                     
             if self.rcoord is not None:
                 #print(rcoord)
                 self.rpoint  = self.calcPointing(self.rcoord[0], self.rcoord[2], self.rcoord[1], 'r')
                 if not self.cal.calibrated:
-                    self.ew_length_changing_r = np.linalg.norm(np.array(self.rcoord[0])-np.array(self.rcoord[2]))/2
+                    self.ew_length_changing_r = np.linalg.norm(np.array(self.rcoord[0])-np.array(self.rcoord[2]))
             
             if not self.cal.calibrated:
                 self.calibrateThread()
@@ -278,7 +283,7 @@ class Pointing:
             if self.cal.calibrated:
                 self.calInd = -2
                 ax.set_xlim(-1, 1)
-                ax.set_ylim(0, 1.2)
+                ax.set_ylim(0, 1.5)
                 plt.gca().invert_yaxis()
                 plt.gca().invert_xaxis()
                 
