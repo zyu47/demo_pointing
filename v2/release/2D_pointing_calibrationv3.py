@@ -68,25 +68,9 @@ class Pointing:
     def run(self):
         # thread to update lpoint and rpoint, first thing to start
         threading.Thread(target=self.updatePoint).start()
-        #threading.Thread(target=self.calibrateThread).start()
-        # Plotting
+        
+        # Plotting, including plotting prompt messages for calibration and illustrating actual point coordinates
         self.plot_all()
-    
-    def calibrateThread(self):
-        if not self.cal.ew_calibrated and self.calInd == 1:
-            self.cal.ew_calibrated = True
-            self.ew_length_l = np.median(self.cal.ew_length_arr_l[int(len(self.cal.ew_length_arr_l)/2):int(len(self.cal.ew_length_arr_l)*4/5)])
-            self.ew_length_l /= 2 # halve due to ew_length_l is originally measured as distance from shoulder to wrist
-            self.ew_length_l /= np.cos(self.theta) # calibrate due to camera rotate around x axis
-            self.ew_length_r = np.median(self.cal.ew_length_arr_r[int(len(self.cal.ew_length_arr_r)/2):int(len(self.cal.ew_length_arr_r)*4/5)])
-            self.ew_length_r /= 2 
-            self.ew_length_r /= np.cos(self.theta)
-        self.cal.calibrate(self.calInd, self.ew_length_changing_l, self.ew_length_changing_r, self.lpoint, self.rpoint)
-        print('calInd: ', self.calInd)
-        print('lcoord: ', self.lcoord)
-        print('rcoord: ', self.rcoord)
-        print('lpoint: ', self.lpoint)
-        print('rpoint: ', self.rpoint)
     
     def updatePoint(self):
         '''
@@ -108,10 +92,23 @@ class Pointing:
                     self.ew_length_changing_r = np.linalg.norm(np.array(self.rcoord[0])-np.array(self.rcoord[2]))
             
             if not self.cal.calibrated:
-                self.calibrateThread()
+                self.calibrateFunc()
+            else:
+                self.normalize_point()
 #            print('Interpolated pointing:', lpoint, " ", rpoint)
 #            print('------------------------')
 
+    def calibrateFunc(self):
+        if not self.cal.ew_calibrated and self.calInd == 1:
+            self.cal.ew_calibrated = True
+            self.ew_length_l = np.median(self.cal.ew_length_arr_l[int(len(self.cal.ew_length_arr_l)/2):int(len(self.cal.ew_length_arr_l)*4/5)])
+            self.ew_length_l /= 2 # halve due to ew_length_l is originally measured as distance from shoulder to wrist
+            self.ew_length_l /= np.cos(self.theta) # calibrate due to camera rotate around x axis
+            self.ew_length_r = np.median(self.cal.ew_length_arr_r[int(len(self.cal.ew_length_arr_r)/2):int(len(self.cal.ew_length_arr_r)*4/5)])
+            self.ew_length_r /= 2 
+            self.ew_length_r /= np.cos(self.theta)
+        self.cal.calibrate(self.calInd, self.ew_length_changing_l, self.ew_length_changing_r, self.lpoint, self.rpoint)
+    
     def getImportantJoints(self, src):
         '''
         This function returns the coordinates for left/right wrists/elbows/shoulders (6 sets of 2 values: x, y for 2D image)
@@ -169,54 +166,7 @@ class Pointing:
         else:
             ew_length = se_length = self.ew_length_r # assumption 3
         
-        # method 1
-        ## First calculate the elbow coordinate, start with elbow_y
-        #coefficients_for_elbow = [(e_x_p/e_y_p)**2 + 1 + (e_z_p/e_y_p)**2,
-                                #-2*(e_x_p*s_x/e_y_p + s_y + e_z_p*s_z/e_y_p),
-                                #s_x**2 + s_y**2 + s_z**2 - se_length**2]
-        #e_y = np.min(np.roots(coefficients_for_elbow)) # the point closer to origin/camera
-        #e_x = e_x_p * e_y / e_y_p
-        #e_z = e_z_p * e_y / e_y_p
-        
-        ## Then calculate the wrist coordinate, start with wrist_y
-        #coefficients_for_wrist = [(w_x_p/w_y_p)**2 + 1 + (w_z_p/w_y_p)**2,
-                                #-2*(w_x_p*e_x/w_y_p + e_y + w_z_p*e_z/w_y_p),
-                                #e_x**2 + e_y**2 + e_z**2 - ew_length**2]
-        #w_y = np.min(np.roots(coefficients_for_wrist)) # the point closer to origin/camera
-        #w_x = w_x_p * w_y / w_y_p
-        #w_z = w_z_p * w_y / w_y_p
-        
-        ## Finally calculate the pointing coordinate on the table
-        #table_y = self.table_height
-        #table_x = w_x - (w_y - table_y) / (e_y - w_y) * (e_x - w_x) # in pixel
-        #table_z = w_z - (w_y - table_y) / (e_y - w_y) * (e_z - w_z) # in pixel
-        
-        ## map table_x back to meters
-        ##table_x = table_x * table_depth / 0.655 * 0.295 /table_width / 735  
-        
-        ## method 2
-        #coefficients_for_t1 = [e_x_p**2 + e_y_p**2 + s_z_p**2,
-                               #-2*(e_x_p*s_x_p + e_y_p*s_y_p + s_z_p**2),
-                               #s_x_p**2 + s_y_p**2 + s_z_p**2 - se_length**2]
-        #t1 = np.min(np.roots(coefficients_for_t1))
-        #e_x = e_x_p*t1
-        #e_y = e_y_p*t1
-        #e_z = s_z_p*t1
-        
-        #coefficients_for_t2 = [w_x_p**2 + w_y_p**2 + s_z**2,
-                               #-2*(w_x_p*e_x + w_y_p*e_y + e_z*s_z),
-                               #e_x**2 + e_y**2 + e_z**2 - ew_length**2]
-        #t2 = np.min(np.roots(coefficients_for_t2))
-        #w_x = w_x_p*t2
-        #w_y = w_y_p*t2
-        #w_z = s_z_p*t2
-        
-        ### Finally calculate the pointing coordinate on the table
-        #table_y = self.table_height
-        #table_x = w_x - (w_y - table_y) / (e_y - w_y) * (e_x - w_x) # in pixel
-        #table_z = w_z - (w_y - table_y) / (e_y - w_y) * (e_z - w_z) # in pixel
-        
-        # method 3
+        # calculate the coordinate for wrist
         coefficients_for_t = [w_x_p**2 + w_y_p**2 + s_z_p**2,
                                -2*(w_x_p*s_x_p + w_y_p*s_y_p + s_z_p**2),
                                s_x_p**2 + s_y_p**2 + s_z_p**2 - (2*se_length)**2]
@@ -225,39 +175,17 @@ class Pointing:
         w_y = w_y_p*t
         w_z = s_z_p*t
         
-        #coefficients_for_t2 = [w_x_p**2 + w_y_p**2 + s_z**2,
-                               #-2*(w_x_p*e_x + w_y_p*e_y + e_z*s_z),
-                               #e_x**2 + e_y**2 + e_z**2 - ew_length**2]
-        #t2 = np.min(np.roots(coefficients_for_t2))
-        #w_x = w_x_p*t2lpoint
-        #w_y = w_y_p*t2
-        #w_z = s_z_p*t2
-        
         ## Finally calculate the pointing coordinate on the table
         table_y = self.table_height
         table_x = w_x - (w_y - table_y) / (s_y - w_y) * (s_x - w_x) # in pixel
         table_z = w_z - (w_y - table_y) / (s_y - w_y) * (s_z - w_z) # in pixel
-        
-        ## normalize before return if calibrated
-        #if self.cal.calibrated:
-            #self.table_z_original = table_z
-            #self.table_x_original = table_x
-            #if direction == 'l':
-                #if table_x < self.point_limit_center_x_l:
-                    #table_x = (table_x - self.point_limit_center_x_l)/(self.point_limit_center_x_l- self.point_limit_right_l)
-                #else:
-                    #table_x = (table_x - self.point_limit_center_x_l)/(self.point_limit_left_l - self.point_limit_center_x_l)
-                #table_z = (table_z - self.point_limit_top_l)/(self.point_limit_center_z_l - self.point_limit_top_l)
-            #else:
-                #if table_x < self.point_limit_center_x_r:
-                    #table_x = (table_x - self.point_limit_center_x_r )/(self.point_limit_center_x_r- self.point_limit_right_r)
-                #else:
-                    #table_x = (table_x - self.point_limit_center_x_r)/(self.point_limit_left_r - self.point_limit_center_x_r)
-                #table_z = (table_z - self.point_limit_top_r)/(self.point_limit_center_z_r - self.point_limit_top_r)
-            
+                    
         return [table_x, table_z] # returned points are in pixels
 
     def normalize_point(self):    
+        '''
+        This function takes the coordinates in pixel and transforms them to a range of [-1,1] for table_x and [0,1.22] for table_z
+        '''
         if self.lpoint[0] < self.point_limit_center_x_l:
             self.lpoint[0] = (self.lpoint[0] - self.point_limit_center_x_l)/(self.point_limit_center_x_l- self.point_limit_right_l)
         else:
@@ -272,7 +200,7 @@ class Pointing:
 
     def plot_all(self):
         #Plot where the pointing position is on the table
-        #The table has a width of (-1,1) and depth of (0.0, 1.6)
+        #The table has a width of (-1,1) and depth of (0.0, 1.3)
         fig = plt.figure(figsize=(15, 15))
         ax = fig.add_subplot(111)        
         self.startTime = time.time()
@@ -283,19 +211,19 @@ class Pointing:
             if self.cal.calibrated:
                 self.calInd = -2
                 ax.set_xlim(-1, 1)
-                ax.set_ylim(0, 1.5)
+                ax.set_ylim(0, 1.3)
                 plt.gca().invert_yaxis()
                 plt.gca().invert_xaxis()
                 
-                ax.text(1, 1,"Left: %.1f %.1f\nRight: %.1f %.1f" %(self.lpoint[0], self.lpoint[1], self.rpoint[0], self.rpoint[1]), fontsize=15, horizontalalignment='right', verticalalignment='top')       
+                #ax.text(1, 1,"Left: %.1f %.1f\nRight: %.1f %.1f" %(self.lpoint[0], self.lpoint[1], self.rpoint[0], self.rpoint[1]), fontsize=15, horizontalalignment='right', verticalalignment='top')       
                 
                 #normalize             
-                self.normalize_point()
+                #self.normalize_point()
                     
                 ax.plot(self.lpoint[0], self.lpoint[1], 'bo', label='left', markersize= 20)
                 ax.plot(self.rpoint[0], self.rpoint[1], 'ro', label='right', markersize= 20)
                 ax.legend()
-                print(self.lpoint, self.rpoint)
+                #print(self.lpoint, self.rpoint)
             else:
                 ## Calibration            
                 ax.set_xlim(-1, 1)
@@ -335,14 +263,6 @@ class Pointing:
                     # calInd 3and4
                     self.point_limit_left_r = np.median(self.cal.dummy_tablex_left_arr_r[int(len(self.cal.dummy_tablex_left_arr_r)/2):int(len(self.cal.dummy_tablex_left_arr_r)*4/5)])
                     self.point_limit_right_l = np.median(self.cal.dummy_tablex_right_arr_l[int(len(self.cal.dummy_tablex_right_arr_l)/2):int(len(self.cal.dummy_tablex_right_arr_l)*4/5)])
-                    
-                    print(self.ew_length_l, self.ew_length_r)
-                    print('point_limit_center_x_l', self.point_limit_center_x_l, 'point_limit_center_z_l', self.point_limit_center_z_l ,'point_limit_center_x_r', self.point_limit_center_x_r, 'point_limit_center_z_r', self.point_limit_center_z_r)
-                    print('point_limit_top_r', self.point_limit_top_r, 'point_limit_top_l', self.point_limit_top_l, 'point_limit_left_l', self.point_limit_left_l, 'point_limit_right_r', self.point_limit_right_r)
-                    print('point_limit_left_r', self.point_limit_left_r, 'point_limit_right_l', self.point_limit_right_l)
-                    # For testing
-                    #self.point_limit_bottom_l = 3
-                    #self.point_limit_bottom_r = 4
                 
         ani = FuncAnimation(fig, animate)
         plt.show()
@@ -352,29 +272,3 @@ class Pointing:
 if __name__ == '__main__':
     p = Pointing()
     p.run()
-
-
-
-
-#//POSE_COCO_BODY_PARTS{
-#// { 0,  "Nose" },
-#// { 1,  "Neck" },
-#// { 2,  "RShoulder" },
-#// { 3,  "RElbow" },
-#// { 4,  "RWrist" },
-#// { 5,  "LShoulder" },
-#// { 6,  "LElbow" },
-#// { 7,  "LWrist" },
-#// { 8,  "RHip" },
-#// { 9,  "RKnee" },
-#// { 10, "RAnkle" },
-#// { 11, "LHip" },
-#// { 12, "LKnee" },
-#// { 13, "LAnkle" },
-#// { 14, "REye" },
-#// { 15, "LEye" },
-#// { 16, "REar" },
-#// { 17, "LEar" },
-#// { 18, "Bkg" },
-#//}
-
