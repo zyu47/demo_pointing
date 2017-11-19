@@ -197,6 +197,12 @@ class Pointing:
         else:
             self.rpoint[0] = (self.rpoint[0] - self.point_limit_center_x_r)/(self.point_limit_left_r - self.point_limit_center_x_r)
         self.rpoint[1] = (self.rpoint[1] - self.point_limit_top_r)/(self.point_limit_center_z_r - self.point_limit_top_r)
+        
+        self.lpoint[0] *= -0.75
+        self.rpoint[0] *= -0.75
+        self.lpoint[1] *= 1.6/1.25 # bottom edge is about 1.25
+        self.rpoint[1] *= 1.6/1.25
+        
 
     def plot_all(self):
         #Plot where the pointing position is on the table
@@ -209,11 +215,10 @@ class Pointing:
             ax.clear()
             
             if self.cal.calibrated:
-                self.calInd = -2
-                ax.set_xlim(-1, 1)
-                ax.set_ylim(0, 1.3)
+                self.calInd = -2   
+                ax.set_xlim(-0.75, 0.75)
+                ax.set_ylim(0, 1.6)
                 plt.gca().invert_yaxis()
-                plt.gca().invert_xaxis()
                 
                 #ax.text(1, 1,"Left: %.1f %.1f\nRight: %.1f %.1f" %(self.lpoint[0], self.lpoint[1], self.rpoint[0], self.rpoint[1]), fontsize=15, horizontalalignment='right', verticalalignment='top')       
                 
@@ -223,7 +228,7 @@ class Pointing:
                 ax.plot(self.lpoint[0], self.lpoint[1], 'bo', label='left', markersize= 20)
                 ax.plot(self.rpoint[0], self.rpoint[1], 'ro', label='right', markersize= 20)
                 ax.legend()
-                #print(self.lpoint, self.rpoint)
+                print(self.lpoint, self.rpoint)
             else:
                 ## Calibration            
                 ax.set_xlim(-1, 1)
