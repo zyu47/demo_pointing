@@ -101,23 +101,29 @@ class Pointing:
 
         self.lpoint_buffer = []
         self.rpoint_buffer = []
-        self.lpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from left arm
-        self.rpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from right arm
+        self.lpoint_tmp = (0.0, -0.6)
+        self.rpoint_tmp = (0.0, -0.6)
         self.prev_lpoint = (0.0, -0.6)
         self.prev_rpoint = (0.0, -0.6)
+        self.lpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from left arm
+        self.rpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from right arm
 
     def get_pointing_main(self, src, is_smoothing_joint=True, is_smoothing_point=True):
         try:
             self._get_wrist_elbow(src)
             if is_smoothing_joint:
-                # self._smoothing_joint(11, 2)
-                self._smoothing_point_weight(15)
-                self._smoothing_joint_median(11)
-            self._get_pointing()
+                pass
+                self._smoothing_joint(11, 2)
+                # self._smoothing_point_weight(10)
+                self._smoothing_joint_mean(11)
+            self._get_pointing(True)  # True is coordinates on screen
             if is_smoothing_point:
-                self._smoothing_point_weight(4)
-                # self._smoothing_point_median(9)
+                pass
+                # self._smoothing_point_weight(1)
+                self._smoothing_point_mean(11)
                 self._smoothing_point(11, 2)
+            self.lpoint = (self.lpoint_tmp[0]-0.25, self.lpoint_tmp[1])
+            self.rpoint = (self.rpoint_tmp[0]+0.25, self.rpoint_tmp[1])
         except Exception as e:
             print(e)
 
@@ -151,12 +157,12 @@ class Pointing:
                                       self._weighting(self.joint_info[k][1], self.prev_joint_info[k][1], c),
                                       self._weighting(self.joint_info[k][2], self.prev_joint_info[k][2], c),)
 
-    def _smoothing_joint_median(self, window_length=5):
+    def _smoothing_joint_mean(self, window_length=5):
         for k, v in self.joint_info_buffer.items():
             if len(v) >= window_length:
                 self.joint_info_buffer[k].pop(0)
                 self.joint_info_buffer[k].append(self.joint_info[k])
-                self.joint_info[k] = np.median(self.joint_info_buffer[k], axis=0)
+                self.joint_info[k] = np.mean(self.joint_info_buffer[k], axis=0)
             else:
                 self.joint_info_buffer[k].append(self.joint_info[k])
             self.prev_joint_info[k] = self.joint_info[k]
@@ -170,78 +176,98 @@ class Pointing:
         '''
         if len(self.lpoint_buffer) >= window_length:
             self.lpoint_buffer.pop(0)
-            self.lpoint_buffer.append(self.lpoint)
+            self.lpoint_buffer.append(self.lpoint_tmp)
             left_smoothed = savgol_filter(self.lpoint_buffer, window_length, polyorder, axis=0).tolist()
-            self.lpoint = left_smoothed[int(window_length/2)]
+            self.lpoint_tmp = left_smoothed[int(window_length/2)]
         else:
-            self.lpoint_buffer.append(self.lpoint)
+            self.lpoint_buffer.append(self.lpoint_tmp)
 
         if len(self.rpoint_buffer) >= window_length:
             self.rpoint_buffer.pop(0)
-            self.rpoint_buffer.append(self.rpoint)
+            self.rpoint_buffer.append(self.rpoint_tmp)
             self.rpoint_buffer = savgol_filter(self.rpoint_buffer, window_length, polyorder, axis=0).tolist()
-            self.rpoint = self.rpoint_buffer[int(window_length/2)]
+            self.rpoint_tmp = self.rpoint_buffer[int(window_length/2)]
         else:
-            self.rpoint_buffer.append(self.rpoint)
+            self.rpoint_buffer.append(self.rpoint_tmp)
 
-        self.prev_lpoint = self.lpoint
-        self.prev_rpoint = self.rpoint
+        self.prev_lpoint = self.lpoint_tmp
+        self.prev_rpoint = self.rpoint_tmp
 
     def _smoothing_point_weight(self, c):
-        self.lpoint = (self._weighting(self.lpoint[0], self.prev_lpoint[0], c),
-                       self._weighting(self.lpoint[1], self.prev_lpoint[1], c))
-        self.rpoint = (self._weighting(self.rpoint[0], self.prev_rpoint[0], c),
-                       self._weighting(self.rpoint[1], self.prev_rpoint[1], c))
+        self.lpoint_tmp = (self._weighting(self.lpoint_tmp[0], self.prev_lpoint[0], c),
+                       self._weighting(self.lpoint_tmp[1], self.prev_lpoint[1], c))
+        self.rpoint_tmp = (self._weighting(self.rpoint_tmp[0], self.prev_rpoint[0], c),
+                       self._weighting(self.rpoint_tmp[1], self.prev_rpoint[1], c))
 
-    def _smoothing_point_median(self, window_length=5):
+    def _smoothing_point_mean(self, window_length=5):
         if len(self.lpoint_buffer) >= window_length:
             self.lpoint_buffer.pop(0)
-            self.lpoint_buffer.append(self.lpoint)
-            self.lpoint = np.median(self.lpoint_buffer, axis=0)
+            self.lpoint_buffer.append(self.lpoint_tmp)
+            self.lpoint_tmp = np.mean(self.lpoint_buffer, axis=0)
         else:
-            self.lpoint_buffer.append(self.lpoint)
+            self.lpoint_buffer.append(self.lpoint_tmp)
 
         if len(self.rpoint_buffer) >= window_length:
             self.rpoint_buffer.pop(0)
-            self.rpoint_buffer.append(self.rpoint)
-            self.rpoint = np.median(self.rpoint_buffer, axis=0)
+            self.rpoint_buffer.append(self.rpoint_tmp)
+            self.rpoint_tmp = np.mean(self.rpoint_buffer, axis=0)
         else:
-            self.rpoint_buffer.append(self.rpoint)
+            self.rpoint_buffer.append(self.rpoint_tmp)
 
-        self.prev_lpoint = self.lpoint
-        self.prev_rpoint = self.rpoint
+        self.prev_lpoint = self.lpoint_tmp
+        self.prev_rpoint = self.rpoint_tmp
 
     def _weighting(self, curr, prev, c):
         diff = np.abs(curr-prev)
         w = np.exp(-c*diff)
         return w*curr + (1-w)*prev
 
-    def _get_pointing(self):
+    def _get_pointing(self, screen=True):
         lwrist = self.joint_info[self.WRISTLEFT]
         rwrist = self.joint_info[self.WRISTRIGHT]
         lelbow = self.joint_info[self.ELBOWLEFT]
         relbow = self.joint_info[self.ELBOWRIGHT]
 
-        self.lpoint = self._calc_coordinates(lwrist, lelbow)
-        self.rpoint = self._calc_coordinates(rwrist, relbow)
+        self.lpoint_tmp = self._calc_coordinates(lwrist, lelbow, screen)
+        self.rpoint_tmp = self._calc_coordinates(rwrist, relbow, screen)
 
-    def _calc_coordinates(self, wrist, elbow):
-        '''
-        Both wrist and elbow should contain (x,y,z) coordinates
-        screen plane: z=0, ie pz = 0
-        Line equation:
-            (ex - px)/(ex - wx) = (ez - pz)/(ez - wz) = ez/(ez - wz)
-            (ey - py)/(ey - wy) = (ez - pz)/(ez - wz) = ez/(ez - wz)
-        so:
-            px = ex - ez(ex-wx) / (ez-wz)
-            py = ey - ez(ey-wy) / (ez-wz)
-        '''
-        if (elbow[2] - wrist[2]) == 0:
-            return -np.inf, -np.inf
-        screen_x = elbow[0] - elbow[2] * (elbow[0] - wrist[0]) / (elbow[2] - wrist[2])
-        screen_y = elbow[1] - elbow[2] * (elbow[1] - wrist[1]) / (elbow[2] - wrist[2])
+    def _calc_coordinates(self, wrist, elbow, screen=True):
+        if screen:
+            '''
+            Both wrist and elbow should contain (x,y,z) coordinates
+            screen plane: z=0, ie pz = 0
+            Line equation:
+                (ex - px)/(ex - wx) = (ez - pz)/(ez - wz) = ez/(ez - wz)
+                (ey - py)/(ey - wy) = (ez - pz)/(ez - wz) = ez/(ez - wz)
+            so:
+                px = ex - ez(ex-wx) / (ez-wz)
+                py = ey - ez(ey-wy) / (ez-wz)
+            '''
+            if (elbow[2] - wrist[2]) == 0:
+                return -np.inf, -np.inf
+            screen_x = elbow[0] - elbow[2] * (elbow[0] - wrist[0]) / (elbow[2] - wrist[2])
+            screen_y = elbow[1] - elbow[2] * (elbow[1] - wrist[1]) / (elbow[2] - wrist[2])
 
-        return screen_x, screen_y
+            return screen_x, screen_y
+        else:
+
+            '''
+            Both wrist and elbow should contain (x,y,z) coordinates
+            Table plane: y = -0.582
+            Line equation: 
+            y = (y2-y1)/(x2-x1) * (x-x1) + y1
+            z = (z2-z1)/(y2-y1) * (y-y1) + z1
+            so:
+            x = x1 - (y1-y) / (y2-y1) * (x2-x1)
+            z = z1 - (y1-y) / (y2-y1) * (z2-z1)
+            '''
+            if (elbow[1] - wrist[1]) == 0:
+                return -np.inf, -np.inf
+            table_y = -0.582
+            table_x = wrist[0] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[0] - wrist[0])
+            table_z = wrist[2] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[2] - wrist[2])
+
+            return table_x, table_z
 
     def test_run(self):
         '''
@@ -264,7 +290,9 @@ class Pointing:
             try:
                 f = recv_skeleton_frame(s)
                 self.get_pointing_main(decode_frame(f))
+                print(p.lpoint, p.rpoint)
             except Exception as e:
+                print(e)
                 s.close()
                 break
             # cnt += 1
@@ -275,6 +303,8 @@ class Pointing:
 
 
 if __name__ == '__main__':
+    for i in range(10):
+        print('***********************************************')
     p = Pointing()
     p.test_run()
     # Plot where the pointing position is on the table
@@ -285,11 +315,13 @@ if __name__ == '__main__':
     def animate(i):
         ax.clear()
         ax.set_xlim(-1, 1)  # width of the table, ie table_x
-        ax.set_ylim(0.0, -0.6)  # length of the table, ie table_z
+        ax.set_ylim(0.3, -1)  # length of the table, ie table_z
         plt.gca().invert_yaxis()
-        print(p.lpoint, p.rpoint)
-        ax.plot(p.lpoint[0], p.lpoint[1], 'bo', label='left hand')
-        ax.plot(p.rpoint[0], p.rpoint[1], 'ro', label='right hand')
+        llabel = '(%.2f,     %.2f)' % (p.lpoint[0], p.lpoint[1])
+        rlabel = '(%.2f,     %.2f)' % (p.rpoint[0], p.rpoint[1])
+        ax.plot(p.lpoint[0], p.lpoint[1], 'bo', label=llabel)
+        ax.plot(p.rpoint[0], p.rpoint[1], 'ro', label=rlabel)
+        plt.legend(prop={'size': 35})
     
     ani = FuncAnimation(fig, animate)
     plt.show()
