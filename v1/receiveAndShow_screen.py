@@ -132,7 +132,7 @@ class Pointing:
             if len(self.lpoint_buffer) < wind_size - 1 or len(self.rpoint_buffer) < wind_size - 1:
                 self._populate_point_buffer(wind_size)
                 return
-            self._populate_point_buffer(wind_size, remove_outlier_coefficient=2, replace_coefficient=1)
+            self._populate_point_buffer(wind_size, remove_outlier_coefficient=None, replace_coefficient=1)
 
             # after buffer is full, smooth data
             if is_smoothing_point:
@@ -171,8 +171,10 @@ class Pointing:
     def _smoothing_joint_savgol(self, window_length=5, polyorder=2):
         for k, v in self.joint_info_buffer.items():
             if len(v) >= window_length:
-                joint_smoothed = savgol_filter(self.joint_info_buffer[k], window_length, polyorder, axis=0).tolist()
-                self.joint_info[k] = joint_smoothed[window_length//2]
+                # joint_smoothed = savgol_filter(self.joint_info_buffer[k], window_length, polyorder, axis=0).tolist()
+                # self.joint_info[k] = joint_smoothed[window_length//2]
+                self.joint_info_buffer[k] = savgol_filter(self.joint_info_buffer[k], window_length, polyorder, axis=0).tolist()
+                self.joint_info[k] = self.joint_info_buffer[k][window_length//2]
             self.prev_joint_info[k] = self.joint_info[k]
 
     def _smoothing_joint_weight(self, c):
@@ -288,14 +290,20 @@ class Pointing:
         :param polyorder:
         :return:
         """
-        left_smoothed = savgol_filter(self.lpoint_buffer, window_length, polyorder, axis=0).tolist()
-        self.lpoint_tmp = left_smoothed[int(window_length/2)]
+        # left_smoothed = savgol_filter(self.lpoint_buffer, window_length, polyorder, axis=0).tolist()
+        # self.lpoint_tmp = left_smoothed[int(window_length/2)]
+        #
+        # right_smoothed = savgol_filter(self.rpoint_buffer, window_length, polyorder, axis=0).tolist()
+        # self.rpoint_tmp = right_smoothed[int(window_length/2)]
 
-        right_smoothed = savgol_filter(self.rpoint_buffer, window_length, polyorder, axis=0).tolist()
-        self.rpoint_tmp = right_smoothed[int(window_length/2)]
+        # self.lpoint_buffer[int(window_length/2)] = self.lpoint_tmp
+        # self.rpoint_buffer[int(window_length / 2)] = self.rpoint_tmp
 
-        self.lpoint_buffer[int(window_length/2)] = self.lpoint_tmp
-        self.rpoint_buffer[int(window_length / 2)] = self.rpoint_tmp
+        self.lpoint_buffer = savgol_filter(self.lpoint_buffer, window_length, polyorder, axis=0).tolist()
+        self.lpoint_tmp = self.lpoint_buffer[int(window_length/2)]
+
+        self.rpoint_buffer = savgol_filter(self.rpoint_buffer, window_length, polyorder, axis=0).tolist()
+        self.rpoint_tmp = self.rpoint_buffer[int(window_length/2)]
 
         self.prev_lpoint = self.lpoint_tmp
         self.prev_rpoint = self.rpoint_tmp
@@ -340,14 +348,20 @@ class Pointing:
         s = connect()
         if s is None:
             sys.exit(0)
-        # cnt = 0
+        cnt = 0
         # start = time.time()
+        tmp_file = open('record_0427.txt', 'w')
         while True:
             try:
                 f = recv_skeleton_frame(s)
                 self.get_pointing_main(decode_frame(f))
                 print('Pointing: ', p.lpoint, p.rpoint)
                 print('Variance: ', p.lpoint_var, p.rpoint_var)
+                tmp_file.write('Pointing: %s\t%s\n' % (p.lpoint, p.rpoint))
+                tmp_file.write('Variance: %s\t%s\n' % (p.lpoint_var, p.rpoint_var))
+                cnt += 1
+                if cnt % 100 == 0:
+                    tmp_file.flush()
             except Exception as e:
                 print(e)
                 s.close()
