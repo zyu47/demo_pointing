@@ -14,7 +14,7 @@ src_addr = '129.82.45.102'
 # src_addr = '127.0.0.1'
 src_port = 8000
 
-stream_id = 32;
+stream_id = 32
 
 def connect():
     """
@@ -106,52 +106,50 @@ class Pointing:
         self.rpoint_tmp = (0.0, -0.6)  # temporary right pointing coordinates before final step (offsetting 0.25)
         self.prev_lpoint = (0.0, -0.6)
         self.prev_rpoint = (0.0, -0.6)
-        self.lpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from left arm
-        self.rpoint = (0.0, -0.6)  # inferred pointing coordinate on the table from right arm
-        self.lpoint_var = (0, 0)  # variance of left point
-        self.rpoint_var = (0, 0)  # variance of right point
+        self.lpoint = (0.0, -0.6)  # inferred left pointing after offsetting, sent to Brandeis
+        self.rpoint = (0.0, -0.6)  # inferred right pointing after offestting, sent to Brandeis
+        self.lpoint_var = (0, 0)  # variance of left point, sent to Brandeis
+        self.rpoint_var = (0, 0)  # variance of right point, sent to Brandeis
 
-    def get_pointing_main(self, src, is_smoothing_joint=True, is_smoothing_point=True):
-        wind_size = 7
-
+    def get_pointing_main(self, src, is_point_screen=True, wind_size=7,
+                          is_smoothing_joint=True, is_smoothing_point=True):
         # work on joint first
         try:
-            if not self._get_wrist_elbow(src):
+            if not self._get_wrist_elbow(src):  # if no skeleton received, stop calculation
                 return
             self._populate_joint_buffer(wind_size)
             if is_smoothing_joint:
-                pass
                 self._smoothing_joint_savgol(wind_size, 2)  # savgol filter
                 # self._smoothing_point_weight(10)
                 # self._smoothing_joint_mean_median(wind_size, is_median=True)
-            self._get_pointing(screen=True)  # True is coordinates on screen
+            self._get_pointing(screen=is_point_screen)  # True is coordinates on screen
         except Exception as e:
             print(e)
-            traceback.print_exc()
 
-        # populate point buffer first
-        if len(self.lpoint_buffer) < wind_size - 1 or len(self.rpoint_buffer) < wind_size - 1:
-            self._populate_point_buffer(wind_size)
-            return
-        self._populate_point_buffer(wind_size, remove_outlier_coeffient=2, replace_coefficient=1)
-
-        # smooth point
+        # work on point next
         try:
+            # populate point buffer first until buffer is full
+            if len(self.lpoint_buffer) < wind_size - 1 or len(self.rpoint_buffer) < wind_size - 1:
+                self._populate_point_buffer(wind_size)
+                return
+            self._populate_point_buffer(wind_size, remove_outlier_coefficient=2, replace_coefficient=1)
+
+            # after buffer is full, smooth data
             if is_smoothing_point:
-                pass
                 # self._smoothing_point_weight(1)
                 # self._smoothing_point_mean_median(is_median=True)
                 self._smoothing_point_savgol(wind_size, 2)
+
+            # offsetting point by 0.25
             self.lpoint = (self.lpoint_tmp[0]-0.25, self.lpoint_tmp[1])
             self.rpoint = (self.rpoint_tmp[0]+0.25, self.rpoint_tmp[1])
         except Exception as e:
             print(e)
-            traceback.print_exc()
 
     def _get_wrist_elbow(self, src):
         """
         This function retrieves the coordinates for left/right wrists/elbows (4 sets of 3 values: x, y, z)
-        @:param src: decoded frame retrieved from the decode_frame() function
+        :param src: The decoded frame retrieved from the decode_frame() function
         """
         try:
             for i in range(25):
@@ -161,6 +159,14 @@ class Pointing:
         except IndexError:
             print('Not enough coordinates to unpack')
             return False
+
+    def _populate_joint_buffer(self, window_length):
+        for k, v in self.joint_info_buffer.items():
+            if len(v) >= window_length:
+                self.joint_info_buffer[k].pop(0)
+                self.joint_info_buffer[k].append(self.joint_info[k])
+            else:
+                self.joint_info_buffer[k].append(self.joint_info[k])
 
     def _smoothing_joint_savgol(self, window_length=5, polyorder=2):
         for k, v in self.joint_info_buffer.items():
@@ -185,23 +191,64 @@ class Pointing:
                     self.joint_info[k] = np.mean(self.joint_info_buffer[k], axis=0)
             self.prev_joint_info[k] = self.joint_info[k]
 
-    def _populate_joint_buffer(self, window_length):
-        for k, v in self.joint_info_buffer.items():
-            if len(v) >= window_length:
-                self.joint_info_buffer[k].pop(0)
-                self.joint_info_buffer[k].append(self.joint_info[k])
-            else:
-                self.joint_info_buffer[k].append(self.joint_info[k])
+    def _get_pointing(self, screen=True):
+        lwrist = self.joint_info[self.WRISTLEFT]
+        rwrist = self.joint_info[self.WRISTRIGHT]
+        lelbow = self.joint_info[self.ELBOWLEFT]
+        relbow = self.joint_info[self.ELBOWRIGHT]
 
-    def _populate_point_buffer(self, window_length, remove_outlier_coeffient=None, replace_coefficient=1):
+        self.lpoint_tmp = self._calc_coordinates(lwrist, lelbow, screen)
+        self.rpoint_tmp = self._calc_coordinates(rwrist, relbow, screen)
+
+    def _calc_coordinates(self, wrist, elbow, screen=True):
+        if wrist is None or elbow is None:
+            raise ValueError('Wrist and elbow coordinates cannot be None!')
+        if screen:
+            '''
+            Both wrist and elbow should contain (x,y,z) coordinates
+            screen plane: z=0, ie pz = 0
+            Line equation:
+                (ex - px)/(ex - wx) = (ez - pz)/(ez - wz) = ez/(ez - wz)
+                (ey - py)/(ey - wy) = (ez - pz)/(ez - wz) = ez/(ez - wz)
+            so:
+                px = ex - ez(ex-wx) / (ez-wz)
+                py = ey - ez(ey-wy) / (ez-wz)
+            '''
+            if (elbow[2] - wrist[2]) == 0:
+                return -np.inf, -np.inf
+            screen_x = elbow[0] - elbow[2] * (elbow[0] - wrist[0]) / (elbow[2] - wrist[2])
+            screen_y = elbow[1] - elbow[2] * (elbow[1] - wrist[1]) / (elbow[2] - wrist[2])
+
+            return screen_x, screen_y
+        else:
+
+            '''
+            Both wrist and elbow should contain (x,y,z) coordinates
+            Table plane: y = -0.582
+            Line equation: 
+            y = (y2-y1)/(x2-x1) * (x-x1) + y1
+            z = (z2-z1)/(y2-y1) * (y-y1) + z1
+            so:
+            x = x1 - (y1-y) / (y2-y1) * (x2-x1)
+            z = z1 - (y1-y) / (y2-y1) * (z2-z1)
+            '''
+            if (elbow[1] - wrist[1]) == 0:
+                return -np.inf, -np.inf
+            table_y = -0.582
+            table_x = wrist[0] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[0] - wrist[0])
+            table_z = wrist[2] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[2] - wrist[2])
+
+            return table_x, table_z
+
+    def _populate_point_buffer(self, window_length, remove_outlier_coefficient=None, replace_coefficient=1):
         if len(self.lpoint_buffer) >= window_length:
             self.lpoint_buffer.pop(0)
             self.lpoint_buffer.append(self.lpoint_tmp)
             self.lpoint_var = np.std(self.lpoint_buffer, axis=0)
             lmean = np.mean(self.lpoint_buffer, axis=0)
-            if remove_outlier_coeffient is not None:
+            if remove_outlier_coefficient is not None:
                 for i in range(len(self.lpoint_buffer)):
-                    if self._is_outlier(self.lpoint_buffer[i], lmean, self.lpoint_var, remove_outlier_coeffient):
+                    if self._is_outlier(self.lpoint_buffer[i], lmean, self.lpoint_var, remove_outlier_coefficient):
                         self.lpoint_buffer[i] = self._replace_outlier(self.lpoint_buffer[i],
                                                                       lmean, self.lpoint_var, replace_coefficient)
         else:
@@ -212,9 +259,9 @@ class Pointing:
             self.rpoint_buffer.append(self.rpoint_tmp)
             self.rpoint_var = np.std(self.rpoint_buffer, axis=0)
             rmean = np.mean(self.rpoint_buffer, axis=0)
-            if remove_outlier_coeffient is not None:
+            if remove_outlier_coefficient is not None:
                 for i in range(len(self.rpoint_buffer)):
-                    if self._is_outlier(self.rpoint_buffer[i], rmean, self.rpoint_var, remove_outlier_coeffient):
+                    if self._is_outlier(self.rpoint_buffer[i], rmean, self.rpoint_var, remove_outlier_coefficient):
                         self.rpoint_buffer[i] = self._replace_outlier(self.rpoint_buffer[i],
                                                                       rmean, self.rpoint_var, replace_coefficient)
         else:
@@ -277,55 +324,6 @@ class Pointing:
         diff = np.abs(curr-prev)
         w = np.exp(-c*diff)
         return w*curr + (1-w)*prev
-
-    def _get_pointing(self, screen=True):
-        lwrist = self.joint_info[self.WRISTLEFT]
-        rwrist = self.joint_info[self.WRISTRIGHT]
-        lelbow = self.joint_info[self.ELBOWLEFT]
-        relbow = self.joint_info[self.ELBOWRIGHT]
-
-        self.lpoint_tmp = self._calc_coordinates(lwrist, lelbow, screen)
-        self.rpoint_tmp = self._calc_coordinates(rwrist, relbow, screen)
-
-    def _calc_coordinates(self, wrist, elbow, screen=True):
-        if wrist is None or elbow is None:
-            raise ValueError('Wrist and elbow coordinates cannot be None!')
-        if screen:
-            '''
-            Both wrist and elbow should contain (x,y,z) coordinates
-            screen plane: z=0, ie pz = 0
-            Line equation:
-                (ex - px)/(ex - wx) = (ez - pz)/(ez - wz) = ez/(ez - wz)
-                (ey - py)/(ey - wy) = (ez - pz)/(ez - wz) = ez/(ez - wz)
-            so:
-                px = ex - ez(ex-wx) / (ez-wz)
-                py = ey - ez(ey-wy) / (ez-wz)
-            '''
-            if (elbow[2] - wrist[2]) == 0:
-                return -np.inf, -np.inf
-            screen_x = elbow[0] - elbow[2] * (elbow[0] - wrist[0]) / (elbow[2] - wrist[2])
-            screen_y = elbow[1] - elbow[2] * (elbow[1] - wrist[1]) / (elbow[2] - wrist[2])
-
-            return screen_x, screen_y
-        else:
-
-            '''
-            Both wrist and elbow should contain (x,y,z) coordinates
-            Table plane: y = -0.582
-            Line equation: 
-            y = (y2-y1)/(x2-x1) * (x-x1) + y1
-            z = (z2-z1)/(y2-y1) * (y-y1) + z1
-            so:
-            x = x1 - (y1-y) / (y2-y1) * (x2-x1)
-            z = z1 - (y1-y) / (y2-y1) * (z2-z1)
-            '''
-            if (elbow[1] - wrist[1]) == 0:
-                return -np.inf, -np.inf
-            table_y = -0.582
-            table_x = wrist[0] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[0] - wrist[0])
-            table_z = wrist[2] - (wrist[1] - table_y) / (elbow[1] - wrist[1]) * (elbow[2] - wrist[2])
-
-            return table_x, table_z
 
     def test_run(self):
         '''
