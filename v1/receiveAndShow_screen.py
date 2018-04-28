@@ -90,6 +90,8 @@ def recv_skeleton_frame(sock):
 # following codes get the elbow and wrist information from the kinect sensor
 class Pointing:
     def __init__(self):
+        self.screen_mode = True  # whether to use screen mode or desk mode
+
         self.WRISTLEFT = 6  # JointType specified by kinect
         self.WRISTRIGHT = 10
         self.ELBOWLEFT = 5
@@ -111,8 +113,17 @@ class Pointing:
         self.lpoint_var = (0, 0)  # variance of left point, sent to Brandeis
         self.rpoint_var = (0, 0)  # variance of right point, sent to Brandeis
 
-    def get_pointing_main(self, src, is_point_screen=True, wind_size=7,
+    def get_pointing_main(self, src, pointing_mode='screen',
                           is_smoothing_joint=True, is_smoothing_point=True):
+        if pointing_mode == 'screen':
+            self.screen_mode = True
+            wind_size = 7
+        elif pointing_mode == 'desk':
+            self.screen_mode = False
+            wind_size = 3
+        else:
+            raise ValueError('Pointing mode is not recognized!')
+
         # work on joint first
         try:
             if not self._get_wrist_elbow(src):  # if no skeleton received, stop calculation
@@ -121,8 +132,8 @@ class Pointing:
             if is_smoothing_joint:
                 self._smoothing_joint_savgol(wind_size, 2)  # savgol filter
                 # self._smoothing_point_weight(10)
-                # self._smoothing_joint_mean_median(wind_size, is_median=True)
-            self._get_pointing(screen=is_point_screen)  # True is coordinates on screen
+                self._smoothing_joint_mean_median(wind_size, is_median=False)
+            self._get_pointing(screen=self.screen_mode)  # True is coordinates on screen
         except Exception as e:
             print(e)
 
@@ -160,11 +171,19 @@ class Pointing:
             print('Not enough coordinates to unpack')
             return False
 
-    def _populate_joint_buffer(self, window_length):
+    def _populate_joint_buffer(self, window_length, remove_outlier_coefficient=None, replace_coefficient=1):
         for k, v in self.joint_info_buffer.items():
             if len(v) >= window_length:
                 self.joint_info_buffer[k].pop(0)
                 self.joint_info_buffer[k].append(self.joint_info[k])
+
+                var = np.std(self.joint_info_buffer[k], axis=0)
+                mean = np.mean(self.joint_info_buffer[k], axis=0)
+                if remove_outlier_coefficient is not None:
+                    for i in range(len(self.joint_info_buffer[k])):
+                        if self._is_outlier_joint(self.joint_info_buffer[k][i], mean, var, remove_outlier_coefficient):
+                            self.lpoint_buffer[i] = self._replace_outlier(self.joint_info_buffer[k][i],
+                                                                          mean, var, replace_coefficient)
             else:
                 self.joint_info_buffer[k].append(self.joint_info[k])
 
@@ -250,9 +269,11 @@ class Pointing:
             lmean = np.mean(self.lpoint_buffer, axis=0)
             if remove_outlier_coefficient is not None:
                 for i in range(len(self.lpoint_buffer)):
-                    if self._is_outlier(self.lpoint_buffer[i], lmean, self.lpoint_var, remove_outlier_coefficient):
-                        self.lpoint_buffer[i] = self._replace_outlier(self.lpoint_buffer[i],
-                                                                      lmean, self.lpoint_var, replace_coefficient)
+                    is_outlier = self._is_outlier(
+                        self.lpoint_buffer[i], lmean, self.lpoint_var, remove_outlier_coefficient)
+                    if np.any(is_outlier):
+                        self.lpoint_buffer[i] = self._replace_outlier(
+                            self.lpoint_buffer[i], lmean, self.lpoint_var, replace_coefficient, is_outlier)
         else:
             self.lpoint_buffer.append(self.lpoint_tmp)
 
@@ -263,17 +284,19 @@ class Pointing:
             rmean = np.mean(self.rpoint_buffer, axis=0)
             if remove_outlier_coefficient is not None:
                 for i in range(len(self.rpoint_buffer)):
-                    if self._is_outlier(self.rpoint_buffer[i], rmean, self.rpoint_var, remove_outlier_coefficient):
-                        self.rpoint_buffer[i] = self._replace_outlier(self.rpoint_buffer[i],
-                                                                      rmean, self.rpoint_var, replace_coefficient)
+                    is_outlier = self._is_outlier(
+                        self.rpoint_buffer[i], rmean, self.rpoint_var, remove_outlier_coefficient)
+                    if np.any(is_outlier):
+                        self.rpoint_buffer[i] = self._replace_outlier(
+                            self.rpoint_buffer[i],rmean, self.rpoint_var, replace_coefficient, is_outlier)
         else:
             self.rpoint_buffer.append(self.rpoint_tmp)
 
     def _is_outlier(self, x, mean, var, c):
-        return x[0] > mean[0] + c * var[0] or x[0] < mean[0] - c * var[0] or \
+        return x[0] > mean[0] + c * var[0] or x[0] < mean[0] - c * var[0], \
                x[1] > mean[1] + c * var[1] or x[1] < mean[1] - c * var[1]
 
-    def _replace_outlier(self, x, mean, var, c):
+    def _replace_outlier(self, x, mean, var, c, is_replace):
         """
         Get a new point to replace the outlier
         :param c: How much to move from mean
@@ -281,7 +304,14 @@ class Pointing:
         """
         dist = np.linalg.norm(np.array(x) - np.array(mean))
         # return mean[0] + (x[0] - mean[0]) / dist * var[0] * c, mean[1] + (x[1] - mean[1]) / dist * var * c
-        return mean + (x - mean) / dist * var * c
+        tmp = mean + (x - mean) / dist * var * c
+        res = list(x)
+        if is_replace[0]:
+            res[0] = tmp[0]
+        if is_replace[1]:
+            res[1] = tmp[1]
+
+        return res
 
     def _smoothing_point_savgol(self, window_length=5, polyorder=2):
         """
@@ -350,11 +380,11 @@ class Pointing:
             sys.exit(0)
         cnt = 0
         # start = time.time()
-        tmp_file = open('record_0427.txt', 'w')
+        tmp_file = open('record_0427_screen.txt', 'w')
         while True:
             try:
                 f = recv_skeleton_frame(s)
-                self.get_pointing_main(decode_frame(f))
+                self.get_pointing_main(decode_frame(f), pointing_mode='screen')
                 print('Pointing: ', p.lpoint, p.rpoint)
                 print('Variance: ', p.lpoint_var, p.rpoint_var)
                 tmp_file.write('Pointing: %s\t%s\n' % (p.lpoint, p.rpoint))
@@ -385,8 +415,12 @@ if __name__ == '__main__':
 
     def animate(i):
         ax.clear()
-        ax.set_xlim(-1, 1)  # width of the table, ie table_x
-        ax.set_ylim(0.3, -1)  # length of the table, ie table_z
+        if p.screen_mode:
+            ax.set_xlim(-1, 1)  # screen_x
+            ax.set_ylim(0.3, -1)  # screen_y
+        else:
+            ax.set_xlim(-1, 1)  # width of the table, ie table_x
+            ax.set_ylim(0, 1.6)  # length of the table, ie table_z
         plt.gca().invert_yaxis()
         # llabel = '(%.2f,     %.2f)' % (p.lpoint[0], p.lpoint[1])
         # rlabel = '(%.2f,     %.2f)' % (p.rpoint[0], p.rpoint[1])
