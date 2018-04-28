@@ -266,8 +266,9 @@ class Pointing:
             self.lpoint_buffer.pop(0)
             self.lpoint_buffer.append(self.lpoint_tmp)
             self.lpoint_var = np.std(self.lpoint_buffer, axis=0)
-            lmean = np.mean(self.lpoint_buffer, axis=0)
+
             if remove_outlier_coefficient is not None:
+                lmean = np.mean(self.lpoint_buffer, axis=0)
                 for i in range(len(self.lpoint_buffer)):
                     is_outlier = self._is_outlier(
                         self.lpoint_buffer[i], lmean, self.lpoint_var, remove_outlier_coefficient)
@@ -281,8 +282,9 @@ class Pointing:
             self.rpoint_buffer.pop(0)
             self.rpoint_buffer.append(self.rpoint_tmp)
             self.rpoint_var = np.std(self.rpoint_buffer, axis=0)
-            rmean = np.mean(self.rpoint_buffer, axis=0)
+
             if remove_outlier_coefficient is not None:
+                rmean = np.mean(self.rpoint_buffer, axis=0)
                 for i in range(len(self.rpoint_buffer)):
                     is_outlier = self._is_outlier(
                         self.rpoint_buffer[i], rmean, self.rpoint_var, remove_outlier_coefficient)
