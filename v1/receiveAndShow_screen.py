@@ -122,7 +122,7 @@ class Pointing:
             self.screen_mode = False
             wind_size = 3
         else:
-            raise ValueError('Pointing mode is not recognized!')
+            raise ValueError('Pointing mode is not recognized!\n Accepted: screen, desk\n Received: %s' %pointing_mode)
 
         # work on joint first
         try:
@@ -137,7 +137,7 @@ class Pointing:
         except Exception as e:
             print(e)
 
-        # work on point next
+        # calculate point next
         try:
             # populate point buffer first until buffer is full
             if len(self.lpoint_buffer) < wind_size - 1 or len(self.rpoint_buffer) < wind_size - 1:
@@ -150,10 +150,16 @@ class Pointing:
                 # self._smoothing_point_weight(1)
                 # self._smoothing_point_mean_median(is_median=True)
                 self._smoothing_point_savgol(wind_size, 2)
+        except Exception as e:
+            print(e)
 
-            # offsetting point by 0.25
-            self.lpoint = (self.lpoint_tmp[0]-0.25, self.lpoint_tmp[1])
-            self.rpoint = (self.rpoint_tmp[0]+0.25, self.rpoint_tmp[1])
+        # offsetting point by 0.25 if it's screen mode
+        try:
+            if self.screen_mode:
+                self.lpoint = (self.lpoint_tmp[0]-0.25, self.lpoint_tmp[1])
+                self.rpoint = (self.rpoint_tmp[0]+0.25, self.rpoint_tmp[1])
+            else:
+                self.lpoint, self.rpoint = self.lpoint_tmp, self.rpoint_tmp
         except Exception as e:
             print(e)
 
