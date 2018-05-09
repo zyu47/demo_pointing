@@ -124,6 +124,8 @@ class Pointing:
 
         self.lpoint_var = (0, 0)  # variance of left point, sent to Brandeis
         self.rpoint_var = (0, 0)  # variance of right point, sent to Brandeis
+        self.lpoint_stable = False  # whether left hand pointing is stable
+        self.rpoint_stable = False  # whether right hand pointing is stable
 
     def get_pointing_main(self, src, is_smoothing_joint=True, is_smoothing_point=True):
 
@@ -133,13 +135,13 @@ class Pointing:
         if self.screen_mode:
             try:
                 if is_smoothing_joint:
-                    self._smoothing_joint(11, 2)
-                    self._smoothing_joint_mean(11)
+                    self._smoothing_joint(5, 2)
+                    self._smoothing_joint_mean(5)
                 self._get_pointing(True)  # True is coordinates on screen
                 if is_smoothing_point:
                     pass
-                    self._smoothing_point_mean(11)
-                    self._smoothing_point(11, 2)
+                    self._smoothing_point_mean(5)
+                    self._smoothing_point(5, 2)
                 self.lpoint = (self.lpoint_tmp[0] - 0.25, self.lpoint_tmp[1])
                 self.rpoint = (self.rpoint_tmp[0] + 0.25, self.rpoint_tmp[1])
             except Exception as e:
@@ -155,6 +157,14 @@ class Pointing:
 
         self.lpoint_var = np.std(self.lpoint_buffer, axis=0)
         self.rpoint_var = np.std(self.rpoint_buffer, axis=0)
+        if np.any((np.amax(self.lpoint_buffer, axis=0) - np.amin(self.lpoint_buffer, axis=0)) > [0.005, 0.005]):
+            self.lpoint_stable = False
+        else:
+            self.lpoint_stable = True
+        if np.any((np.amax(self.rpoint_buffer, axis=0) - np.amin(self.rpoint_buffer, axis=0)) > [0.005, 0.005]):
+            self.rpoint_stable = False
+        else:
+            self.rpoint_stable = True
 
     def _get_wrist_elbow(self, src):
         '''
@@ -303,6 +313,10 @@ class Pointing:
         Used for testing only
         Use
         """
+        # record_writer = open('rh_record.txt', 'w')
+        # var_writer = open('rh_var.txt', 'w')
+        # self.num_frames = 0
+        # self.next_session = False
         s = connect()
         if s is None:
             sys.exit(0)
@@ -311,6 +325,16 @@ class Pointing:
                 f = recv_skeleton_frame(s)
                 self.get_pointing_main(decode_frame(f))
                 print(p.lpoint, p.rpoint)
+                # if self.next_session:
+                #     p.num_frames = 0
+                #     record_writer.flush()
+                #     record_writer.write('*'*50 + '\n')
+                #     var_writer.flush()
+                #     var_writer.write('*'*50 + '\n')
+                #     self.next_session = False
+                # record_writer.write('%s\t%s\n' % (p.lpoint, p.rpoint))
+                # var_writer.write('%s\t%s\n' % (p.lpoint_var, p.rpoint_var))
+                # self.num_frames += 1
             except Exception as e:
                 print(e)
                 s.close()
@@ -318,13 +342,12 @@ class Pointing:
 
 
 if __name__ == '__main__':
-    p = Pointing('desk')
+    p = Pointing('screen')
     p.test_run()
     # Plot where the pointing position is on the table
     # The table has a width of (-1,1) and depth of (1.0, 1.6)
     fig = plt.figure(figsize=(7, 7))
     ax = fig.add_subplot(111)
-
 
     def animate(i):
         ax.clear()
@@ -340,10 +363,22 @@ if __name__ == '__main__':
         # ax.plot(p.lpoint[0], p.lpoint[1], 'bo', label=llabel)
         # ax.plot(p.rpoint[0], p.rpoint[1], 'ro', label=rlabel)
         # plt.legend(prop={'size': 35})
-        circle_l = plt.Circle(p.lpoint, np.mean(p.lpoint_var) * 2, color='b')
-        circle_r = plt.Circle(p.rpoint, np.mean(p.rpoint_var) * 2, color='r')
+        # if p.num_frames >= 300:
+        #     p.next_session = True
+        # plt.title('%s' % p.num_frames)
+        if p.lpoint_stable:
+            llabel = 'STABLE'
+        else:
+            llabel = 'MOVING'
+        if p.rpoint_stable:
+            rlabel = 'STABLE'
+        else:
+            rlabel = 'MOVING'
+        circle_l = plt.Circle(p.lpoint, np.mean(p.lpoint_var) * 2, color='b', label=llabel)
+        circle_r = plt.Circle(p.rpoint, np.mean(p.rpoint_var) * 2, color='r', label=rlabel)
         ax.add_artist(circle_l)
         ax.add_artist(circle_r)
+        plt.title('%s %s' % (llabel, rlabel))
 
 
     ani = FuncAnimation(fig, animate)
